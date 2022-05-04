@@ -1,0 +1,105 @@
+#!/bin/bash
+
+if [[ "$OSTYPE" != "linux-gnu"* ]]; then
+    echo "This script is only for Linux/Ubuntu distros"
+    exit 1
+fi
+
+echo "==== Installing required languages
+===================================================================================================="
+if python3 --version | grep -e "Python"; then
+    echo "Python 3 already installed"
+else
+    echo "Installing Python 3"
+    sudo apt-get -y install python3
+fi
+
+if venv --version | grep -e "venv"; then
+    echo "Virtualenv already installed"
+else
+    echo "Installing virtualenv"
+    sudo apt-get -y install python3-venv
+fi
+
+if node --version; then
+    echo "NodeJS already installed"
+else
+    echo "Installing NodeJS 6"
+    curl -fsSL https://deb.nodesource.com/setup_17.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+fi
+
+if yarn --version; then
+    echo "Yarn already installed"
+else
+    echo "Installing Yarn"
+    cd app/static && npm install yarn && cd ../../
+fi
+
+if psql --version; then
+    echo "PostgreSQL already installed"
+else
+    echo "Installing PostgreSQL"
+    sudo apt-get -y install postgresql postgresql-contrib
+fi
+
+echo "==== Activating Virtual Env
+===================================================================================================="
+python3 -m venv venv
+source venv/bin/activate
+echo "Activated!"
+
+echo ""
+echo "==== Installing python packages ==================================================================================================================="
+pip3 install -r ./requirements.txt
+
+echo ""
+echo "==== Installing yarn dependencies ==================================================================================================================="
+cd app/static && yarn install && cd ../../
+
+
+echo ""
+echo "==== Starting postgres instance ==========================================================================================================="
+sudo service postgresql start
+
+echo ""
+echo "==== Creating postgres db ==========================================================================================================="
+sudo -u postgres psql -c 'create database mango;'
+
+sudo -u postgres psql -c "CREATE USER mangoapp WITH PASSWORD 'local';"
+
+echo ""
+echo "==== Configuring postgres db ==========================================================================================================="
+export DATABASE_URL="postgresql://mangoapp:local@localhost:5432/mango"
+python3 ./db_setup.py
+
+echo "Adding DATABASE_URL to .env file"
+touch .env
+if grep -q "DATABASE_URL" .env; then
+    echo "DATABASE_URL already exists"
+else
+    echo "DATABASE_URL=${DATABASE_URL}" >> .env
+fi
+
+echo ""
+echo "==== Running tests ==================================================================================================================="
+black --check .
+cd app/static && npx prettier --check . && cd ../../
+pytest
+
+echo ""
+echo "==== Done ==================================================================================================================="
+
+cat ./script/ascii-art.txt
+echo ""
+echo "!!!!!!!!!!!!!!!!!!!! ATTENTION !!!!!!!!!!!!!!!!!!!!"
+echo "You need to add the following variables to your .env file:"
+echo " SENTRY_URL"
+echo " AUTH0_BASE_URL" 
+echo " AUTH0_SPA_CLIENT_ID" 
+echo " AUTH0_API_AUDIENCE"
+echo " SECRET_KEY"
+echo ""
+echo "+ Run \"source venv/bin/activate\" in start virtual env"
+echo "+ Run \"yarn run build\" in app/static to build frontend"
+echo "+ Run \"python3 run.py\" in root directory to start server"

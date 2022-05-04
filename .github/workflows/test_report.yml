@@ -1,0 +1,79 @@
+name: Test Webapp
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v2
+
+      # backend test + lint
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v2
+        with:
+          path: ${{ env.pythonLocation }}
+          key: ${{ env.pythonLocation }}-${{ hashFiles('run.py') }}-${{ hashFiles('requirements.txt') }}
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Lint with black
+        run: |
+          black --check .
+
+      - name: Lint app/static resources
+        uses: creyD/prettier_action@v4.0
+        with:
+          # This part is also where you can pass other options, for example:
+          prettier_options: --check app/static/
+
+      - name: Test backend with coverage
+        run: |
+          wget -O code-climate https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64
+          chmod +x code-climate
+          ./code-climate before-build
+          pytest
+
+      # frontend test
+      - name: Setup node with cache
+        uses: actions/setup-node@v2
+        with:
+          node-version: "15.x"
+          cache: "yarn"
+
+      - name: Install frontend depedencies
+        run: yarn --cwd ./app/static install
+      - name: Test frontend
+        run: yarn --cwd ./app/static jest
+
+      # code climate
+      - name: Format coverage for Jest
+        run: |
+          cd app/static
+          wget -O code-climate https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64
+          chmod +x code-climate
+          ./code-climate format-coverage  ./coverage/lcov.info --input-type lcov -o ./coverage/coverage.json 
+          cd ../..
+
+      - name: Format coverage for Pytest
+        run: |
+          ./code-climate format-coverage cov.xml --input-type coverage.py
+
+      - name: Consolidate coverage
+        run: |
+          ./code-climate sum-coverage --parts 2 ./app/static/coverage/coverage.json ./coverage/codeclimate.json
+
+      - name: Upload coverage
+        run: |
+          ./code-climate upload-coverage -r ${{ secrets.CC_TEST_REPORTER_ID }}
